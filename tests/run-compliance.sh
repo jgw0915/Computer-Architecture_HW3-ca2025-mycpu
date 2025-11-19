@@ -25,7 +25,6 @@ check_cross_tools() {
     if command -v "${prefix}gcc" &> /dev/null && \
        command -v "${prefix}cpp" &> /dev/null && \
        echo | "${prefix}cpp" -dM - 2>/dev/null | grep -q __riscv; then
-        echo "${prefix}"
         return 0
     fi
     return 1

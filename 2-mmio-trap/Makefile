@@ -44,7 +44,6 @@ indent:
 	clang-format -i csrc/*.[ch]
 
 compliance:
-	@echo "Running RISCOF compliance tests for 2-mmio-trap (RV32I + Zicsr)..."
 	@cd ../tests && RISCOF_WORK=riscof_work_2mt ./run-compliance.sh 2-mmio-trap
 	@echo ""
 	@echo "Copying results to results/ directory..."

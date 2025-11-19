@@ -25,7 +25,6 @@ indent:
 	clang-format -i csrc/*.[ch]
 
 compliance:
-	@echo "Running RISCOF compliance tests for 1-single-cycle (RV32I)..."
 	@cd ../tests && RISCOF_WORK=riscof_work_1sc ./run-compliance.sh 1-single-cycle
 	@echo ""
 	@echo "Copying results to results/ directory..."

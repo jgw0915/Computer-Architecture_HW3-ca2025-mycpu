@@ -31,7 +31,7 @@ class MemoryAccess extends Module {
   io.wb_memory_read_data        := 0.U
 
   // ============================================================
-  // [CA25: Exercise 12] Load Data Extension - Sign and Zero Extension
+  // [CA25: Exercise 6] Load Data Extension - Sign and Zero Extension
   // ============================================================
   // Hint: Implement proper sign extension and zero extension for load operations
   //
@@ -73,9 +73,9 @@ class MemoryAccess extends Module {
         // Hint: Replicate sign bit, then concatenate with byte
         InstructionsTypeL.lb -> MuxLookup(mem_address_index, Cat(Fill(24, data(31)), data(31, 24)))(
           Seq(
-            0.U -> ?,
-            1.U -> ?,
-            2.U -> ?
+            0.U -> Cat(Fill(24, data(7)),  data(7, 0)),
+            1.U -> Cat(Fill(24, data(15)), data(15, 8)),
+            2.U -> Cat(Fill(24, data(23)), data(23, 16))
           )
         ),
 
@@ -83,9 +83,9 @@ class MemoryAccess extends Module {
         // Hint: Fill upper bits with zero, then concatenate with byte
         InstructionsTypeL.lbu -> MuxLookup(mem_address_index, Cat(Fill(24, 0.U), data(31, 24)))(
           Seq(
-            0.U -> ?,
-            1.U -> ?,
-            2.U -> ?
+            0.U -> Cat(Fill(24, 0.U), data(7, 0)),
+            1.U -> Cat(Fill(24, 0.U), data(15, 8)),
+            2.U -> Cat(Fill(24, 0.U), data(23, 16))
           )
         ),
 
@@ -93,16 +93,20 @@ class MemoryAccess extends Module {
         // Hint: Replicate sign bit, then concatenate with halfword
         InstructionsTypeL.lh -> Mux(
           mem_address_index === 0.U,
-          ?,
-          ?
+            // lower halfword: bits [15:0]
+            Cat(Fill(16, data(15)), data(15, 0)),
+            // upper halfword: bits [31:16]
+            Cat(Fill(16, data(31)), data(31, 16))
         ),
 
         // TODO: Complete LHU (zero-extend halfword)
         // Hint: Fill upper bits with zero, then concatenate with halfword
         InstructionsTypeL.lhu -> Mux(
           mem_address_index === 0.U,
-          ?,
-          ?
+            // lower halfword: bits [15:0]
+            Cat(Fill(16, 0.U), data(15, 0)),
+            // upper halfword: bits [31:16]
+            Cat(Fill(16, 0.U), data(31, 16))
         ),
 
         // LW: Load full word, no extension needed (completed example)
@@ -110,7 +114,7 @@ class MemoryAccess extends Module {
       )
     )
   // ============================================================
-  // [CA25: Exercise 13] Store Data Alignment - Byte Strobes and Shifting
+  // [CA25: Exercise 7] Store Data Alignment - Byte Strobes and Shifting
   // ============================================================
   // Hint: Implement proper data alignment and byte strobes for store operations
   //
@@ -144,13 +148,13 @@ class MemoryAccess extends Module {
       // Hint:
       // 1. Enable single byte strobe at appropriate position
       // 2. Shift byte data to correct position based on address
-      io.memory_bundle.write_strobe(?) := true.B
-      io.memory_bundle.write_data := io.reg2_data(?) << (mem_address_index << ?)
+      io.memory_bundle.write_strobe(mem_address_index) := true.B
+      io.memory_bundle.write_data := io.reg2_data(7, 0) << (mem_address_index << 3)
 
     }.elsewhen(io.funct3 === InstructionsTypeS.sh) {
       // TODO: Complete store halfword logic
       // Hint: Check address to determine lower/upper halfword position
-      when(mem_address_index(?) === 0.U) {
+      when(mem_address_index(1) === 0.U) {
         // Lower halfword (bytes 0-1)
         // TODO: Enable strobes for bytes 0 and 1, no shifting needed
         for (i <- 0 until Parameters.WordSize / 2) {

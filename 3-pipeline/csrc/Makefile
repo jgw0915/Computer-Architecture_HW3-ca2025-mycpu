@@ -1,4 +1,4 @@
-CROSS_COMPILE ?= $(HOME)/riscv/toolchain/bin/riscv-none-elf-
+CROSS_COMPILE ?= $(HOME)/riscv-none-elf-gcc/bin/riscv-none-elf-
 
 ASFLAGS = -march=rv32i_zicsr -mabi=ilp32
 CFLAGS = -O0 -Wall -march=rv32i_zicsr -mabi=ilp32
@@ -27,7 +27,9 @@ BINS = \
 	quicksort.asmbin \
 	sb.asmbin \
 	uart.asmbin \
-	irqtrap.asmbin
+	irqtrap.asmbin \
+	rsqrt-asm.asmbin \
+	rsqrt-c.asmbin
 
 # Clear the .DEFAULT_GOAL special variable, so that the following turns
 # to the first target after .DEFAULT_GOAL is not set.

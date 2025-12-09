@@ -30,7 +30,7 @@ class WriteBack extends Module {
   })
 
   // ============================================================
-  // [CA25: Exercise 12] WriteBack Source Selection with CSR Support
+  // [CA25: Exercise 8] WriteBack Source Selection with CSR Support
   // ============================================================
   // Hint: Select the appropriate write-back data source based on instruction type
   //
@@ -52,11 +52,11 @@ class WriteBack extends Module {
   //
   // TODO: Complete MuxLookup to multiplex writeback sources with CSR support
   // Hint: Specify default value and cases for each source type, including CSR
-  io.regs_write_data := MuxLookup(io.regs_write_source, ?)(
+  io.regs_write_data := MuxLookup(io.regs_write_source, io.alu_result)(
     Seq(
-      RegWriteSource.Memory                 -> ?,
-      RegWriteSource.CSR                    -> ?,
-      RegWriteSource.NextInstructionAddress -> ?
+      RegWriteSource.Memory                 -> io.memory_read_data,
+      RegWriteSource.CSR                    -> io.csr_read_data,
+      RegWriteSource.NextInstructionAddress -> (io.instruction_address + 4.U)
     )
   )
 }

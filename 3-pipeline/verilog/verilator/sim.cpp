@@ -22,7 +22,7 @@ public:
     {
         address = address / 4;
         if (address >= memory.size()) {
-            printf("invalid read address 0x%08x\n", address * 4);
+            printf("invalid read address 0x%08x\n", (uint32_t) address * 4);
             return 0;
         }
         return memory[address];
@@ -32,7 +32,7 @@ public:
     {
         address = address / 4;
         if (address >= memory.size()) {
-            printf("invalid read Inst address 0x%08x\n", address * 4);
+            printf("invalid read Inst address 0x%08x\n", (uint32_t) address * 4);
             return 0;
         }
 
@@ -52,7 +52,7 @@ public:
         if (write_strobe[3])
             write_mask |= 0xFF000000;
         if (address >= memory.size()) {
-            printf("invalid write address 0x%08x\n", address * 4);
+            printf("invalid write address 0x%08x\n", (uint32_t) address * 4);
             return;
         }
         memory[address] =

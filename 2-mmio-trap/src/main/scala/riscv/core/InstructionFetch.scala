@@ -30,7 +30,7 @@ class InstructionFetch extends Module {
   val pc = RegInit(ProgramCounter.EntryAddress)
 
   // ============================================================
-  // [CA25: Exercise 15] PC Update Logic - Sequential vs Control Flow with Interrupts
+  // [CA25: Exercise 13] PC Update Logic - Sequential vs Control Flow with Interrupts
   // ============================================================
   // Hint: Implement program counter (PC) update logic for sequential execution,
   // control flow changes, and interrupt handling
@@ -66,7 +66,15 @@ class InstructionFetch extends Module {
     // - Inner multiplexer: Check jump flag
     //   - True: Use jump target address
     //   - False: Sequential execution
-    pc := ?
+    pc := Mux(
+      io.interrupt_assert,
+      io.interrupt_handler_address,
+      Mux(
+        io.jump_flag_id,
+        io.jump_address_id,
+        pc + 4.U
+      )
+    )
 
   }.otherwise {
     // When instruction is invalid, hold PC and insert NOP (ADDI x0, x0, 0)

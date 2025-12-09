@@ -64,6 +64,64 @@ class TestTopModule(exeFilename: String) extends Module {
   io.mem_debug_read_data    := mem.io.debug_read_data
 }
 
+class RSqrtTest extends AnyFlatSpec with ChiselScalatestTester {
+  behavior.of("Single Cycle CPU - Integration Tests")
+  it should "correctly calculate reciprocal square root" in {
+    test(new TestTopModule("rsqrt-c.asmbin")).withAnnotations(TestAnnotations.annos) { c =>
+      for (i <- 1 to 200) {
+          c.clock.step(1000)
+          c.io.mem_debug_read_address.poke((i * 4).U)
+        }
+
+        val rsqrtVectors: Seq[(UInt, UInt)] = Seq(
+          1.U   -> 65536.U,
+          4.U   -> 32768.U,
+          16.U  -> 16384.U,
+          20.U  -> 14654.U,
+          30.U  -> 11965.U,
+          100.U -> 6553.U,
+          120.U -> 5982.U,
+          130.U -> 5747.U,
+          0.U   -> 0xffffffffL.U,   // 4294967295 (for x=0)
+          0xffffffffL.U -> 1.U      // x=4294967295, y=1
+        )
+
+        var i = 4
+        // var j = 8
+        // var k = 16
+
+        println("========== rsqrt() test start =========")
+
+        for ((input, expected) <- rsqrtVectors) {
+          println(f"Accessing memory address $i")
+          c.io.mem_debug_read_address.poke((i).U)
+          c.clock.step()
+          c.io.mem_debug_read_data.expect(expected, s"rsqrt($input) should be $expected")
+          val result = c.io.mem_debug_read_data.peek().litValue
+          println(f"rsqrt(${input.litValue}%d) = ${result}%d")
+
+          // println(f"Accessing memory address $j")
+
+          // c.io.mem_debug_read_address.poke((j).U)
+          // c.clock.step()
+          // val elapse_cycle = c.io.mem_debug_read_data.peek().litValue
+          // println(f"Elapsed cycles: $elapse_cycle%d")
+
+          // println(f"Accessing memory address $k")
+
+          // c.io.mem_debug_read_address.poke((k).U)
+          // c.clock.step()
+          // val elapse_instruction = c.io.mem_debug_read_data.peek().litValue
+          // println(f"Elapsed instructions: $elapse_instruction%d")
+
+          i += 4
+          // j += 20
+          // k += 20
+        }
+  }
+}
+}
+
 class FibonacciTest extends AnyFlatSpec with ChiselScalatestTester {
   behavior.of("Single Cycle CPU - Integration Tests")
   it should "correctly execute recursive Fibonacci(10) program" in {
@@ -114,3 +172,5 @@ class ByteAccessTest extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 }
+
+

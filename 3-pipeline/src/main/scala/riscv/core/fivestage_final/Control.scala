@@ -61,6 +61,7 @@ class Control extends Module {
     val rd_ex                  = Input(UInt(Parameters.PhysicalRegisterAddrWidth)) // id2ex.io.output_regs_write_address
     val memory_read_enable_mem = Input(Bool())                                     // ex2mem.io.output_memory_read_enable   //
     val rd_mem                 = Input(UInt(Parameters.PhysicalRegisterAddrWidth)) // ex2mem.io.output_regs_write_address   //
+    val uses_rs2_id = Input(Bool())  // true only if current ID instruction really reads rs2
 
     val if_flush = Output(Bool())
     val id_flush = Output(Bool())
@@ -73,6 +74,9 @@ class Control extends Module {
   io.id_flush := false.B
   io.pc_stall := false.B
   io.if_stall := false.B
+  // Gate the rs2 compare in the stall condition
+  val hazard_ex_rs1 = (io.rd_ex === io.rs1_id)
+  val hazard_ex_rs2 = io.uses_rs2_id && (io.rd_ex === io.rs2_id)
 
   // ============================================================
   // [CA25: Exercise 19] Pipeline Hazard Detection
@@ -108,7 +112,7 @@ class Control extends Module {
       // - Jump in ID needs register value, OR
       // - Load in EX (load-use hazard)
       (io.rd_ex =/= 0.U) &&                                 // Destination is not x0
-      ((io.rd_ex === io.rs1_id) || (io.rd_ex === io.rs2_id))) // Destination matches ID source
+      ((hazard_ex_rs1 || hazard_ex_rs2))) // Destination matches ID source
     //
     // Examples triggering Condition 1:
     // a) Jump dependency: ADD x1, x2, x3 [EX]; JALR x0, x1, 0 [ID] → stall
@@ -128,7 +132,7 @@ class Control extends Module {
         ( io.jump_instruction_id &&                              // Jump instruction in ID
           io.memory_read_enable_mem &&                          // Load instruction in MEM
           (io.rd_mem =/= 0.U) &&                                  // Load destination not x0
-          ((io.rd_mem === io.rs1_id) || (io.rd_mem === io.rs2_id))  // Load dest matches jump source
+          ((io.rd_mem === io.rs1_id) || (io.uses_rs2_id && (io.rd_mem === io.rs2_id)))  // Load dest matches jump source
         )
         //
         // Example triggering Condition 2:

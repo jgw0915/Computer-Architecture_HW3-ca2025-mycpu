@@ -1,0 +1,23 @@
+[info] Five-stage Pipelined CPU with Stalling
+========== rsqrt() test start =========
+
+rsqrt(1) = 65536
+  Elapsed cycles: 90
+rsqrt(4) = 32768
+  Elapsed cycles: 6167
+rsqrt(16) = 16384
+  Elapsed cycles: 6167
+rsqrt(20) = 14654
+  Elapsed cycles: 10040
+rsqrt(30) = 11965
+  Elapsed cycles: 9884
+rsqrt(100) = 6553
+  Elapsed cycles: 9612
+rsqrt(120) = 5982
+  Elapsed cycles: 10236
+rsqrt(130) = 5747
+  Elapsed cycles: 10335
+rsqrt(0) = 4294967295
+  Elapsed cycles: 82
+rsqrt(4294967295) = 1
+  Elapsed cycles: 8061

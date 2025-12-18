@@ -1,0 +1,23 @@
+[info] Five-stage Pipelined CPU with Reduced Branch Delay
+========== rsqrt() test start =========
+
+rsqrt(1) = 65536
+  Elapsed cycles: 68
+rsqrt(4) = 32768
+  Elapsed cycles: 3992
+rsqrt(16) = 16384
+  Elapsed cycles: 3992
+rsqrt(20) = 14654
+  Elapsed cycles: 6400
+rsqrt(30) = 11965
+  Elapsed cycles: 6304
+rsqrt(100) = 6553
+  Elapsed cycles: 6137
+rsqrt(120) = 5982
+  Elapsed cycles: 6521
+rsqrt(130) = 5747
+  Elapsed cycles: 6582
+rsqrt(0) = 4294967295
+  Elapsed cycles: 60
+rsqrt(4294967295) = 1
+  Elapsed cycles: 5186

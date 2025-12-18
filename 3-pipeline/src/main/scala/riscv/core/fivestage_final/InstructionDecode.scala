@@ -152,6 +152,7 @@ class InstructionDecode extends Module {
     val clint_jump_address     = Output(UInt(Parameters.AddrWidth)) // clint.io.jump_address
     val if_jump_flag           = Output(Bool())                     // ctrl.io.jump_flag , inst_fetch.io.jump_flag_id
     val if_jump_address        = Output(UInt(Parameters.AddrWidth)) // inst_fetch.io.jump_address_id
+    val uses_rs1_id = Output(Bool())
     val uses_rs2_id = Output(Bool()) // tells Control/Forwarding whether rs2 is valid for this instruction
 
   })
@@ -165,7 +166,12 @@ class InstructionDecode extends Module {
               (opcode === InstructionTypes.S)  ||
               (opcode === InstructionTypes.B)
 
+  val usesRs1 = !(opcode === Instructions.jal) &&
+               !(opcode === Instructions.lui) &&
+               !(opcode === Instructions.auipc)
+
   io.uses_rs2_id := usesRs2
+  io.uses_rs1_id := usesRs1
 
 
   io.regs_reg1_read_address := Mux(opcode === Instructions.lui, 0.U(Parameters.PhysicalRegisterAddrWidth), rs1)

@@ -61,6 +61,7 @@ class Control extends Module {
     val rd_ex                  = Input(UInt(Parameters.PhysicalRegisterAddrWidth)) // id2ex.io.output_regs_write_address
     val memory_read_enable_mem = Input(Bool())                                     // ex2mem.io.output_memory_read_enable   //
     val rd_mem                 = Input(UInt(Parameters.PhysicalRegisterAddrWidth)) // ex2mem.io.output_regs_write_address   //
+    val uses_rs1_id = Input(Bool())  // true only if current ID instruction really reads rs1
     val uses_rs2_id = Input(Bool())  // true only if current ID instruction really reads rs2
 
     val if_flush = Output(Bool())
@@ -132,7 +133,7 @@ class Control extends Module {
         ( io.jump_instruction_id &&                              // Jump instruction in ID
           io.memory_read_enable_mem &&                          // Load instruction in MEM
           (io.rd_mem =/= 0.U) &&                                  // Load destination not x0
-          ((io.rd_mem === io.rs1_id) || (io.uses_rs2_id && (io.rd_mem === io.rs2_id)))  // Load dest matches jump source
+          ((io.uses_rs1_id && (io.rd_mem === io.rs1_id)) || (io.uses_rs2_id && (io.rd_mem === io.rs2_id)))  // Load dest matches jump source
         )
         //
         // Example triggering Condition 2:

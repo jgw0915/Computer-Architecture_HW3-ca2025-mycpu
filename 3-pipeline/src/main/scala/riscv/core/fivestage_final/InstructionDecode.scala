@@ -162,20 +162,26 @@ class InstructionDecode extends Module {
   val rd     = io.instruction(11, 7)
   val rs1    = io.instruction(19, 15)
   val rs2    = io.instruction(24, 20)
-  val usesRs2 = (opcode === InstructionTypes.RM) ||
+  val uses_rs2 = (opcode === InstructionTypes.RM) ||
               (opcode === InstructionTypes.S)  ||
               (opcode === InstructionTypes.B)
 
-  val usesRs1 = !(opcode === Instructions.jal) &&
-               !(opcode === Instructions.lui) &&
-               !(opcode === Instructions.auipc)
+  val uses_rs1 =  !(opcode === Instructions.jal) &&
+                  !(opcode === Instructions.lui) &&
+                  !(opcode === Instructions.auipc) &&
+                  !(opcode === Instructions.fence) &&
+                  !(opcode === Instructions.csr &&
+                    (funct3 === InstructionsTypeCSR.csrrwi ||
+                    funct3 === InstructionsTypeCSR.csrrsi ||
+                    funct3 === InstructionsTypeCSR.csrrci))
 
-  io.uses_rs2_id := usesRs2
-  io.uses_rs1_id := usesRs1
+
+  io.uses_rs2_id := uses_rs2
+  io.uses_rs1_id := uses_rs1
 
 
-  io.regs_reg1_read_address := Mux(opcode === Instructions.lui, 0.U(Parameters.PhysicalRegisterAddrWidth), rs1)
-  io.regs_reg2_read_address := Mux(usesRs2, rs2, 0.U)
+  io.regs_reg1_read_address := Mux(uses_rs1, rs1, 0.U(Parameters.PhysicalRegisterAddrWidth))
+  io.regs_reg2_read_address := Mux(uses_rs2, rs2, 0.U(Parameters.PhysicalRegisterAddrWidth))
   io.ex_immediate := MuxLookup(
     opcode,
     Cat(Fill(20, io.instruction(31)), io.instruction(31, 20))

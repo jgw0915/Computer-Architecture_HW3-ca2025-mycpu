@@ -140,7 +140,6 @@ class CPU extends Module {
   ctrl.io.uses_rs2_id            := id.io.uses_rs2_id
   ctrl.io.uses_rs1_id            := id.io.uses_rs1_id
 
-
   regs.io.write_enable  := mem2wb.io.output_regs_write_enable
   regs.io.write_address := mem2wb.io.output_regs_write_address
   regs.io.write_data    := wb.io.regs_write_data

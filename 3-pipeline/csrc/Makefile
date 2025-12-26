@@ -29,8 +29,8 @@ BINS = \
 	uart.asmbin \
 	irqtrap.asmbin \
 	rsqrt-asm.asmbin \
-	rsqrt-c.asmbin
-
+	rsqrt-c.asmbin \
+	hazard_extended.asmbin \
 # Clear the .DEFAULT_GOAL special variable, so that the following turns
 # to the first target after .DEFAULT_GOAL is not set.
 .DEFAULT_GOAL :=

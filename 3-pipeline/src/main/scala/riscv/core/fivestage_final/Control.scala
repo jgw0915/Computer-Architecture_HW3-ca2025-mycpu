@@ -75,9 +75,6 @@ class Control extends Module {
   io.id_flush := false.B
   io.pc_stall := false.B
   io.if_stall := false.B
-  // Gate the rs2 compare in the stall condition
-  val hazard_ex_rs1 = io.uses_rs1_id && (io.rd_ex === io.rs1_id)
-  val hazard_ex_rs2 = io.uses_rs2_id && (io.rd_ex === io.rs2_id)
 
   // ============================================================
   // [CA25: Exercise 19] Pipeline Hazard Detection
@@ -89,6 +86,10 @@ class Control extends Module {
   // 1. Load-use hazard: Load result used immediately by next instruction
   // 2. Jump-related hazard: Jump instruction needs register value not ready
   // 3. Control hazard: Branch/jump instruction changes PC
+  // Hint: For data hazards type 1 and 2, check for register dependencies
+  //   Use the decoded `uses_rs1_id` / `uses_rs2_id` flags to test whether the
+  //   current ID-stage instruction actually reads rs1/rs2; only then should a
+  //   register-number match be considered a true RAW dependency.
   //
   // Control signals:
   // - pc_stall: Freeze PC (don't fetch next instruction)
@@ -113,7 +114,8 @@ class Control extends Module {
       // - Jump in ID needs register value, OR
       // - Load in EX (load-use hazard)
       (io.rd_ex =/= 0.U) &&                                 // Destination is not x0
-      ((hazard_ex_rs1 || hazard_ex_rs2))) // Destination matches ID source
+      ( (io.uses_rs1_id && (io.rd_ex === io.rs1_id)) || (io.uses_rs2_id && (io.rd_ex === io.rs2_id)) ) // Destination matches ID source
+    ) 
     //
     // Examples triggering Condition 1:
     // a) Jump dependency: ADD x1, x2, x3 [EX]; JALR x0, x1, 0 [ID] → stall

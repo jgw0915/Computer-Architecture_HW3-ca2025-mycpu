@@ -1,18 +1,19 @@
 CROSS_COMPILE ?= $(HOME)/rv/toolchain/bin/riscv-none-elf-
 
-ASFLAGS = -march=rv32i_zicsr -mabi=ilp32
+ASFLAGS = -march=rv32ia_zicsr -mabi=ilp32
 # Optimization required: -O2 produces large stack frames that overflow in deep call chains
 # RV32I lacks hardware multiply/divide, so -O2 significantly reduces code size
-CFLAGS = -O2 -Wall -fno-builtin -march=rv32i_zicsr -mabi=ilp32
+CFLAGS = -O2 -Wall -fno-builtin -march=rv32ia_zicsr -mabi=ilp32
 LDFLAGS = --oformat=elf32-littleriscv
 
 AS := $(CROSS_COMPILE)as
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
 OBJCOPY := $(CROSS_COMPILE)objcopy
+OBJDUMP := $(CROSS_COMPILE)objdump
 
 # Program targets (add new programs here)
-PROGRAMS := nyancat uart shell
+PROGRAMS := nyancat uart shell ring-buffer
 BINARIES := $(PROGRAMS:%=%.asmbin)
 
 %.asmbin: %.elf
@@ -37,6 +38,14 @@ shell.asmbin: shell.c mmio.h init.o link.lds
 	$(CC) $(CFLAGS) -c -o shell.o shell.c
 	$(CROSS_COMPILE)ld -o shell.elf -T link.lds $(LDFLAGS) shell.o init.o
 	$(OBJCOPY) -O binary -j .text -j .data shell.elf $@
+
+ring-buffer.asmbin: ring-buffer.c init.o link.lds
+	$(CC) $(CFLAGS) -c -o ring-buffer.o ring-buffer.c
+	$(CROSS_COMPILE)ld -o ringbuf.elf -T link.lds $(LDFLAGS) ring-buffer.o init.o
+	$(OBJCOPY) -O binary -j .text -j .data ringbuf.elf $@
+
+disasm-ringbuf: ringbuf.elf
+	$(OBJDUMP) -d ringbuf.elf | less
 
 init.o: init.S
 	$(AS) -R $(ASFLAGS) -o $@ $<

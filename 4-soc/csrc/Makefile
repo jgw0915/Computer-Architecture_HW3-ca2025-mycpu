@@ -1,19 +1,28 @@
 CROSS_COMPILE ?= $(HOME)/rv/toolchain/bin/riscv-none-elf-
-
-ASFLAGS = -march=rv32i_zicsr -mabi=ilp32
+ASFLAGS = -march=rv32ia_zicsr -mabi=ilp32
 # Optimization required: -O2 produces large stack frames that overflow in deep call chains
 # RV32I lacks hardware multiply/divide, so -O2 significantly reduces code size
-CFLAGS = -O2 -Wall -fno-builtin -march=rv32i_zicsr -mabi=ilp32
+CFLAGS = -O2 -Wall -fno-builtin -march=rv32ia_zicsr -mabi=ilp32
 LDFLAGS = --oformat=elf32-littleriscv
 
 AS := $(CROSS_COMPILE)as
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
 OBJCOPY := $(CROSS_COMPILE)objcopy
+OBJDUMP := $(CROSS_COMPILE)objdump
 
 # Program targets (add new programs here)
-PROGRAMS := nyancat uart shell
+PROGRAMS := nyancat uart shell ring-buffer
 BINARIES := $(PROGRAMS:%=%.asmbin)
+
+ASM_OUTPUTS := $(PROGRAMS:%=%.S)
+
+# Per-program extra flags (so .S matches the exact build flags)
+CFLAGS_nyancat = -DNYANCAT_COMPRESSION_DELTA=$(NYANCAT_COMPRESSION_DELTA)
+
+# Generate compiler-produced assembly from C sources
+%.S: %.c
+	$(CC) $(CFLAGS) $(CFLAGS_$*) -S -fverbose-asm -o $@ $<
 
 %.asmbin: %.elf
 	$(OBJCOPY) -O binary -j .text -j .data $< $@
@@ -24,7 +33,7 @@ all: $(BINARIES)
 
 # All programs use proper init.S with ABI compliance and .bss clearing
 nyancat.asmbin: nyancat.c nyancat-data.h init.o link.lds
-	$(CC) $(CFLAGS) -DNYANCAT_COMPRESSION_DELTA=$(NYANCAT_COMPRESSION_DELTA) -c -o nyancat.o nyancat.c
+	$(CC) $(CFLAGS) $(CFLAGS_nyancat) -c -o nyancat.o nyancat.c
 	$(CROSS_COMPILE)ld -o nyancat.elf -T link.lds $(LDFLAGS) nyancat.o init.o
 	$(OBJCOPY) -O binary -j .text -j .data nyancat.elf $@
 
@@ -38,7 +47,18 @@ shell.asmbin: shell.c mmio.h init.o link.lds
 	$(CROSS_COMPILE)ld -o shell.elf -T link.lds $(LDFLAGS) shell.o init.o
 	$(OBJCOPY) -O binary -j .text -j .data shell.elf $@
 
+ring-buffer.asmbin: ring-buffer.c init-multi-hart.o link.lds
+	$(CC) $(CFLAGS) -c -o ring-buffer.o ring-buffer.c
+	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link-spike-mh.lds $(LDFLAGS) ring-buffer.o init-multi-hart.o
+	$(OBJCOPY) -O binary -j .text -j .data ring-buffer.elf $@
+
+disasm-ringbuf: ring-bufffer.elf
+	$(OBJDUMP) -d ring-buffer.elf | less
+
 init.o: init.S
+	$(AS) -R $(ASFLAGS) -o $@ $<
+
+init-multi-hart.o : init-multi-hart.S
 	$(AS) -R $(ASFLAGS) -o $@ $<
 
 # Generate nyancat animation data from upstream source
@@ -57,13 +77,13 @@ endif
 # Nyancat build depends on generated data
 nyancat.o: nyancat.c nyancat-data.h
 
-update: $(BINARIES)
+update: $(BINARIES) $(ASM_OUTPUTS)
 	cp -f $(BINARIES) ../src/main/resources
 	@echo ""
 	@echo "Updated $(BINARIES) to ../src/main/resources"
 
 clean:
-	$(RM) *.o *.elf *.asmbin init_minimal.S nyancat-data.h
+	$(RM) *.o *.elf *.asmbin $(ASM_OUTPUTS) init_minimal.S nyancat-data.h
 
 # Convenience targets (prevent implicit rule interference)
 $(PROGRAMS): %: %.asmbin

@@ -16,6 +16,15 @@ OBJDUMP := $(CROSS_COMPILE)objdump
 PROGRAMS := nyancat uart shell ring-buffer
 BINARIES := $(PROGRAMS:%=%.asmbin)
 
+ASM_OUTPUTS := $(PROGRAMS:%=%.S)
+
+# Per-program extra flags (so .S matches the exact build flags)
+CFLAGS_nyancat = -DNYANCAT_COMPRESSION_DELTA=$(NYANCAT_COMPRESSION_DELTA)
+
+# Generate compiler-produced assembly from C sources
+%.S: %.c
+	$(CC) $(CFLAGS) $(CFLAGS_$*) -S -fverbose-asm -o $@ $<
+
 %.asmbin: %.elf
 	$(OBJCOPY) -O binary -j .text -j .data $< $@
 
@@ -25,7 +34,7 @@ all: $(BINARIES)
 
 # All programs use proper init.S with ABI compliance and .bss clearing
 nyancat.asmbin: nyancat.c nyancat-data.h init.o link.lds
-	$(CC) $(CFLAGS) -DNYANCAT_COMPRESSION_DELTA=$(NYANCAT_COMPRESSION_DELTA) -c -o nyancat.o nyancat.c
+	$(CC) $(CFLAGS) $(CFLAGS_nyancat) -c -o nyancat.o nyancat.c
 	$(CROSS_COMPILE)ld -o nyancat.elf -T link.lds $(LDFLAGS) nyancat.o init.o
 	$(OBJCOPY) -O binary -j .text -j .data nyancat.elf $@
 
@@ -41,8 +50,8 @@ shell.asmbin: shell.c mmio.h init.o link.lds
 
 ring-buffer.asmbin: ring-buffer.c init.o link.lds
 	$(CC) $(CFLAGS) -c -o ring-buffer.o ring-buffer.c
-	$(CROSS_COMPILE)ld -o ringbuf.elf -T link.lds $(LDFLAGS) ring-buffer.o init.o
-	$(OBJCOPY) -O binary -j .text -j .data ringbuf.elf $@
+	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link.lds $(LDFLAGS) ring-buffer.o init.o
+	$(OBJCOPY) -O binary -j .text -j .data ring-buffer.elf $@
 
 disasm-ringbuf: ringbuf.elf
 	$(OBJDUMP) -d ringbuf.elf | less
@@ -66,13 +75,13 @@ endif
 # Nyancat build depends on generated data
 nyancat.o: nyancat.c nyancat-data.h
 
-update: $(BINARIES)
+update: $(BINARIES) $(ASM_OUTPUTS)
 	cp -f $(BINARIES) ../src/main/resources
 	@echo ""
 	@echo "Updated $(BINARIES) to ../src/main/resources"
 
 clean:
-	$(RM) *.o *.elf *.asmbin init_minimal.S nyancat-data.h
+	$(RM) *.o *.elf *.asmbin $(ASM_OUTPUTS) init_minimal.S nyancat-data.h
 
 # Convenience targets (prevent implicit rule interference)
 $(PROGRAMS): %: %.asmbin

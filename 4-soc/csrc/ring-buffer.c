@@ -14,15 +14,21 @@ All rights reserved.
  * The ring buffer implementation is not preemptable.
  */
 
-#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* typically 64 bytes on x86/x64 CPUs */
 #define CACHE_LINE_SIZE 64
+#define RING_COUNT (1u << 6)   // 64 entries (power of 2)
+#define EINVAL 22
+#define ENOBUFS 105
+#define ENOENT  2
+#define EDQUOT  122
+// return -ENOBUFS etc.
+typedef long ssize_t;
+
 
 #ifndef __compiler_barrier
 #define __compiler_barrier()             \
@@ -30,6 +36,17 @@ All rights reserved.
         asm volatile("" : : : "memory"); \
     } while (0)
 #endif
+
+static void *ringbuf_memset(void *dst, int value, size_t len)
+{
+    unsigned char *p = (unsigned char *) dst;
+
+    while (len--) {
+        *p++ = (unsigned char) value;
+    }
+
+    return dst;
+}
 
 /* The producer and the consumer have a head and a tail index. The particularity
  * of these index is that they are not between 0 and size(ring). These indexes
@@ -54,6 +71,22 @@ typedef struct {
 
     void *ring[] __attribute__((__aligned__(CACHE_LINE_SIZE)));
 } ringbuf_t;
+
+static inline uint32_t mul_u32(uint32_t a, uint32_t b) {
+    uint32_t r = 0;
+    while (b) {
+        if (b & 1) r += a;
+        a <<= 1;
+        b >>= 1;
+    }
+    return r;
+}
+
+#define RINGBUF_BYTES(count) \
+        (((sizeof(ringbuf_t) + (count) * sizeof(void*) + (CACHE_LINE_SIZE - 1)) / CACHE_LINE_SIZE) * CACHE_LINE_SIZE)
+
+static unsigned char ring_storage[RINGBUF_BYTES(RING_COUNT)]
+    __attribute__((aligned(CACHE_LINE_SIZE)));
 
 /* true if x is a power of 2 */
 #define IS_POWEROF2(x) ((((x) -1) & (x)) == 0)
@@ -102,7 +135,7 @@ ssize_t ringbuf_get_memsize(const unsigned count)
  */
 int ringbuf_init(ringbuf_t *r, const unsigned count)
 {
-    memset(r, 0, sizeof(*r));
+    ringbuf_memset(r, 0, sizeof(*r));
     r->prod.watermark = count, r->prod.size = r->cons.size = count;
     r->prod.mask = r->cons.mask = count - 1;
     r->prod.head = r->cons.head = 0, r->prod.tail = r->cons.tail = 0;
@@ -125,27 +158,27 @@ int ringbuf_init(ringbuf_t *r, const unsigned count)
  *    - EEXIST - a memzone with the same name already exists
  *    - ENOMEM - no appropriate memory area found in which to create memzone
  */
-ringbuf_t *ringbuf_create(const unsigned count)
-{
-    ssize_t ring_size = ringbuf_get_memsize(count);
-    if (ring_size < 0)
-        return NULL;
+// ringbuf_t *ringbuf_create(const unsigned count)
+// {
+//     ssize_t ring_size = ringbuf_get_memsize(count);
+//     if (ring_size < 0)
+//         return NULL;
 
-    ringbuf_t *r = malloc(ring_size);
-    if (r)
-        ringbuf_init(r, count);
-    return r;
-}
+//     ringbuf_t *r = malloc(ring_size);
+//     if (r)
+//         ringbuf_init(r, count);
+//     return r;
+// }
 
 /* Release all memory used by the ring buffer.
  *
  * @param r
  *   Ring to free
  */
-void ringbuf_free(ringbuf_t *r)
-{
-    free(r);
-}
+// void ringbuf_free(ringbuf_t *r)
+// {
+//     free(r);
+// }
 
 /* The actual enqueue of pointers on the ring buffer.
  * Placed here since identical code needed in both single- and multi- producer
@@ -208,6 +241,50 @@ void ringbuf_free(ringbuf_t *r)
                 obj_table[i] = r->ring[idx];                             \
         }                                                                \
     } while (0)
+
+static inline uint32_t lr_w_aq(volatile uint32_t *p)
+{
+    uint32_t v;
+    asm volatile("lr.w.aq %0, (%1)" : "=r"(v) : "r"(p) : "memory");
+    return v;
+}
+
+static inline void store_w_rl(volatile uint32_t *p, uint32_t v)
+{
+    uint32_t old, sc;
+    do {
+        asm volatile(
+            "lr.w    %0, (%2)\n"
+            "sc.w.rl %1, %3, (%2)\n"
+            : "=&r"(old), "=&r"(sc)
+            : "r"(p), "r"(v)
+            : "memory"
+        );
+    } while (sc != 0);
+}
+
+/* CAS for head reservation (no aq/rl needed for head itself) */
+static inline int cas_w(volatile uint32_t *p, uint32_t expect, uint32_t desired)
+{
+    uint32_t old, sc;
+    asm volatile(
+        "0:\n"
+        "  lr.w   %0, (%2)\n"
+        "  bne    %0, %3, 1f\n"
+        "  sc.w   %1, %4, (%2)\n"
+        "  bnez   %1, 0b\n"
+        "  li     %1, 1\n"
+        "  j      2f\n"
+        "1:\n"
+        "  li     %1, 0\n"
+        "2:\n"
+        : "=&r"(old), "=&r"(sc)
+        : "r"(p), "r"(expect), "r"(desired)
+        : "memory"
+    );
+    return (int)sc;
+}
+
 
 /* Enqueue several objects on a ring buffer (NOT multi-producers safe).
  *
@@ -328,6 +405,71 @@ static inline int ringbuf_sc_dequeue(ringbuf_t *r, void **obj_p)
     return ringbuffer_sc_do_dequeue(r, obj_p, 1);
 }
 
+static inline int ringbuf_mp_enqueue_1(ringbuf_t *r, void *obj)
+{
+    uint32_t mask = r->prod.mask;
+
+    while (1) {
+        uint32_t head = r->prod.head;
+        uint32_t cons_tail = lr_w_aq(&r->cons.tail);   // acquire observe frees
+        uint32_t free_entries = mask + cons_tail - head;
+
+        if (free_entries == 0)
+            return -ENOBUFS;
+
+        uint32_t next = head + 1;
+
+        /* LR/SC contention point: multiple producers fight on prod.head */
+        if (!cas_w(&r->prod.head, head, next))
+            continue;
+
+        /* Write payload first */
+        r->ring[head & mask] = obj;
+
+        /*
+         * Publish with RELEASE (no fence):
+         * guarantees the ring slot store becomes visible before tail update.
+         */
+        while (r->prod.tail != head) { /* enforce in-order publish */ }
+        store_w_rl(&r->prod.tail, next);
+
+        return 0;
+    }
+}
+
+static inline int ringbuf_mc_dequeue_1(ringbuf_t *r, void **obj_p)
+{
+    uint32_t mask = r->cons.mask;
+
+    while (1) {
+        uint32_t head = r->cons.head;
+        uint32_t prod_tail = lr_w_aq(&r->prod.tail);   // acquire observe available
+
+        if ((prod_tail - head) == 0)
+            return -ENOENT;
+
+        uint32_t next = head + 1;
+
+        /* LR/SC contention point: multiple consumers fight on cons.head */
+        if (!cas_w(&r->cons.head, head, next))
+            continue;
+
+        /*
+         * Because prod_tail was read with ACQUIRE, subsequent reads
+         * (ring slot load) will see what producers published before tail.
+         */
+        void *obj = r->ring[head & mask];
+        *obj_p = obj;
+
+        /* Publish consumer progress with RELEASE */
+        while (r->cons.tail != head) { /* in-order publish */ }
+        store_w_rl(&r->cons.tail, next);
+
+        return 0;
+    }
+}
+
+
 /* Test if a ring buffer is full.
  *
  * @param r
@@ -356,25 +498,56 @@ static inline bool ringbuf_is_empty(const ringbuf_t *r)
     return cons_tail == prod_tail;
 }
 
-#include <assert.h>
+static inline uint32_t read_mhartid(void)
+{
+    uint32_t x;
+    asm volatile("csrr %0, mhartid" : "=r"(x));
+    return x;
+}
+
+static volatile uint32_t start_count = 0;
+static volatile uint32_t start_go = 0;
+
+static inline void barrier_4(void)
+{
+    /* atomic increment start_count using CAS */
+    while (1) {
+        uint32_t v;
+        v = start_count;
+        if (cas_w(&start_count, v, v + 1)) break;
+    }
+
+    if (read_mhartid() == 0) {
+        while (start_count < 4) { }
+        store_w_rl(&start_go, 1);          // release: start signal
+    } else {
+        while (lr_w_aq(&start_go) == 0) { } // acquire: wait start signal
+    }
+}
+
+#define ITERS 5
 
 int main(void)
 {
-    ringbuf_t *r = ringbuf_create((1 << 6));
-    if (!r) {
-        printf("Fail to create ring buffer.\n");
-        return -1;
+    ringbuf_t *r = (ringbuf_t *)ring_storage;
+    uint32_t id = read_mhartid();
+
+    if (id == 0) ringbuf_init(r, RING_COUNT);
+    barrier_4();
+
+    if (id < 2) {
+        /* 2 producers */
+        for (uint32_t i = 0; i < ITERS; i++) {
+            void *obj = (void *)(uintptr_t)((id << 28) ^ i);
+            while (ringbuf_mp_enqueue_1(r, obj) != 0) { }
+        }
+    } else {
+        /* 2 consumers */
+        for (uint32_t i = 0; i < ITERS; i++) {
+            void *obj;
+            while (ringbuf_mc_dequeue_1(r, &obj) != 0) { }
+        }
     }
 
-    for (int i = 0; !ringbuf_is_full(r); i++)
-        ringbuf_sp_enqueue(r, *(void **) &i);
-
-    for (int i = 0; !ringbuf_is_empty(r); i++) {
-        void *obj;
-        ringbuf_sc_dequeue(r, &obj);
-        assert(i == *(int *) &obj);
-    }
-
-    ringbuf_free(r);
     return 0;
 }

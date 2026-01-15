@@ -1,5 +1,4 @@
 CROSS_COMPILE ?= $(HOME)/rv/toolchain/bin/riscv-none-elf-
-
 ASFLAGS = -march=rv32ia_zicsr -mabi=ilp32
 # Optimization required: -O2 produces large stack frames that overflow in deep call chains
 # RV32I lacks hardware multiply/divide, so -O2 significantly reduces code size
@@ -48,15 +47,18 @@ shell.asmbin: shell.c mmio.h init.o link.lds
 	$(CROSS_COMPILE)ld -o shell.elf -T link.lds $(LDFLAGS) shell.o init.o
 	$(OBJCOPY) -O binary -j .text -j .data shell.elf $@
 
-ring-buffer.asmbin: ring-buffer.c init.o link.lds
+ring-buffer.asmbin: ring-buffer.c init-multi-hart.o link.lds
 	$(CC) $(CFLAGS) -c -o ring-buffer.o ring-buffer.c
-	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link.lds $(LDFLAGS) ring-buffer.o init.o
+	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link-spike-mh.lds $(LDFLAGS) ring-buffer.o init-multi-hart.o
 	$(OBJCOPY) -O binary -j .text -j .data ring-buffer.elf $@
 
-disasm-ringbuf: ringbuf.elf
-	$(OBJDUMP) -d ringbuf.elf | less
+disasm-ringbuf: ring-bufffer.elf
+	$(OBJDUMP) -d ring-buffer.elf | less
 
 init.o: init.S
+	$(AS) -R $(ASFLAGS) -o $@ $<
+
+init-multi-hart.o : init-multi-hart.S
 	$(AS) -R $(ASFLAGS) -o $@ $<
 
 # Generate nyancat animation data from upstream source

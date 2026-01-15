@@ -14,13 +14,13 @@ All rights reserved.
  * The ring buffer implementation is not preemptable.
  */
 
-#include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+#include <stddef.h>
+#include <stdbool.h>
 
-/* typically 64 bytes on x86/x64 CPUs */
+#ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
+#endif
 #define RING_COUNT (1u << 6)   // 64 entries (power of 2)
 #define EINVAL 22
 #define ENOBUFS 105
@@ -28,6 +28,71 @@ All rights reserved.
 #define EDQUOT  122
 // return -ENOBUFS etc.
 typedef long ssize_t;
+
+
+
+/* Compile-time check helper (C11). If not C11, replace with your own. */
+#ifndef static_assert
+#define static_assert _Static_assert
+#endif
+
+/* One cache-line worth of padding after a 32-bit field. */
+#define PAD_AFTER_U32 (CACHE_LINE_SIZE - sizeof(uint32_t))
+
+/* Producer/consumer blocks:
+ *  - head is the only live field in its cache line (LR/SC target).
+ *  - tail/mask/size/watermark share the next cache line (non-LR/SC line).
+ *  - whole blocks are cache-line aligned.
+ *
+ * This minimizes “reservation breakage” caused by unrelated stores in the
+ * same reservation granule/cache line as head.
+ */
+
+typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
+    /* Cache line 0: LR/SC target only */
+    volatile uint32_t head;
+    char _pad_head[PAD_AFTER_U32];
+
+    /* Cache line 1: non-LR/SC metadata */
+    volatile uint32_t tail;      /* written at end, read by other side */
+    uint32_t mask;               /* read-only after init */
+    uint32_t size;               /* read-only after init */
+    uint32_t watermark;          /* read-only after init */
+    char _pad_meta[CACHE_LINE_SIZE - 4 * sizeof(uint32_t)];
+} ring_prod_t;
+
+typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
+    /* Cache line 0: LR/SC target only */
+    volatile uint32_t head;
+    char _pad_head[PAD_AFTER_U32];
+
+    /* Cache line 1: non-LR/SC metadata */
+    volatile uint32_t tail;
+    uint32_t mask;
+    uint32_t size;
+    char _pad_meta[CACHE_LINE_SIZE - 3 * sizeof(uint32_t)];
+} ring_cons_t;
+
+typedef struct {
+    ring_prod_t prod;
+    ring_cons_t cons;
+
+    /* Ring array aligned to cache line */
+    void *ring[] __attribute__((aligned(CACHE_LINE_SIZE)));
+} ringbuf_t;
+
+/* Layout assertions: head lines must be isolated and aligned. */
+static_assert(sizeof(ring_prod_t) % CACHE_LINE_SIZE == 0, "prod size not multiple of cache line");
+static_assert(sizeof(ring_cons_t) % CACHE_LINE_SIZE == 0, "cons size not multiple of cache line");
+
+static_assert(offsetof(ring_prod_t, head) == 0, "prod.head not at block start");
+static_assert(offsetof(ring_prod_t, tail) == CACHE_LINE_SIZE, "prod.tail not at next cache line");
+
+static_assert(offsetof(ring_cons_t, head) == 0, "cons.head not at block start");
+static_assert(offsetof(ring_cons_t, tail) == CACHE_LINE_SIZE, "cons.tail not at next cache line");
+
+static_assert(((offsetof(ringbuf_t, prod.head) % CACHE_LINE_SIZE) == 0), "ringbuf.prod.head not cache-line aligned");
+static_assert(((offsetof(ringbuf_t, cons.head) % CACHE_LINE_SIZE) == 0), "ringbuf.cons.head not cache-line aligned");
 
 
 #ifndef __compiler_barrier
@@ -48,29 +113,6 @@ static void *ringbuf_memset(void *dst, int value, size_t len)
     return dst;
 }
 
-/* The producer and the consumer have a head and a tail index. The particularity
- * of these index is that they are not between 0 and size(ring). These indexes
- * are between 0 and 2^32, and we mask their value when we access the ring[]
- * field. Thanks to this assumption, we can do subtractions between 2 index
- * values in a modulo-32bit base: that is why the overflow of the indexes is not
- * a problem.
- */
-typedef struct {
-    struct {                          /** Ring producer status. */
-        uint32_t watermark;           /**< Maximum items before EDQUOT. */
-        uint32_t size;                /**< Size of ring buffer. */
-        uint32_t mask;                /**< Mask (size - 1) of ring buffer. */
-        volatile uint32_t head, tail; /**< Producer head and tail. */
-    } prod __attribute__((__aligned__(CACHE_LINE_SIZE)));
-
-    struct {                          /** Ring consumer status. */
-        uint32_t size;                /**< Size of the ring buffer. */
-        uint32_t mask;                /**< Mask (size - 1) of ring buffer. */
-        volatile uint32_t head, tail; /**< Consumer head and tail. */
-    } cons __attribute__((__aligned__(CACHE_LINE_SIZE)));
-
-    void *ring[] __attribute__((__aligned__(CACHE_LINE_SIZE)));
-} ringbuf_t;
 
 static inline uint32_t mul_u32(uint32_t a, uint32_t b) {
     uint32_t r = 0;
@@ -143,105 +185,6 @@ int ringbuf_init(ringbuf_t *r, const unsigned count)
     return 0;
 }
 
-/* Create a ring buffer.
- *
- * The real usable ring size is (count - 1) instead of (count) to
- * differentiate a free ring from an empty ring buffer.
- *
- * @param count
- *   The size of the ring (must be a power of 2).
- * @return
- *   On success, the pointer to the new allocated ring buffer. NULL on error
- *   with errno set appropriately. Possible errno values include:
- *    - EINVAL - count provided is not a power of 2
- *    - ENOSPC - the maximum number of memzones has already been allocated
- *    - EEXIST - a memzone with the same name already exists
- *    - ENOMEM - no appropriate memory area found in which to create memzone
- */
-// ringbuf_t *ringbuf_create(const unsigned count)
-// {
-//     ssize_t ring_size = ringbuf_get_memsize(count);
-//     if (ring_size < 0)
-//         return NULL;
-
-//     ringbuf_t *r = malloc(ring_size);
-//     if (r)
-//         ringbuf_init(r, count);
-//     return r;
-// }
-
-/* Release all memory used by the ring buffer.
- *
- * @param r
- *   Ring to free
- */
-// void ringbuf_free(ringbuf_t *r)
-// {
-//     free(r);
-// }
-
-/* The actual enqueue of pointers on the ring buffer.
- * Placed here since identical code needed in both single- and multi- producer
- * enqueue functions.
- */
-#define ENQUEUE_PTRS()                                                     \
-    do {                                                                   \
-        const uint32_t size = r->prod.size;                                \
-        uint32_t i, idx = prod_head & mask;                                \
-        if (idx + n < size) {                                              \
-            for (i = 0; i < (n & ((~(unsigned) 0x3))); i += 4, idx += 4) { \
-                r->ring[idx] = obj_table[i];                               \
-                r->ring[idx + 1] = obj_table[i + 1];                       \
-                r->ring[idx + 2] = obj_table[i + 2];                       \
-                r->ring[idx + 3] = obj_table[i + 3];                       \
-            }                                                              \
-            switch (n & 0x3) {                                             \
-            case 3:                                                        \
-                r->ring[idx++] = obj_table[i++];                           \
-            case 2:                                                        \
-                r->ring[idx++] = obj_table[i++];                           \
-            case 1:                                                        \
-                r->ring[idx++] = obj_table[i++];                           \
-            }                                                              \
-        } else {                                                           \
-            for (i = 0; idx < size; i++, idx++)                            \
-                r->ring[idx] = obj_table[i];                               \
-            for (idx = 0; i < n; i++, idx++)                               \
-                r->ring[idx] = obj_table[i];                               \
-        }                                                                  \
-    } while (0)
-
-/* The actual copy of pointers on the ring to obj_table.
- * Placed here since identical code needed in both single- and multi- consumer
- * dequeue functions.
- */
-#define DEQUEUE_PTRS()                                                   \
-    do {                                                                 \
-        uint32_t idx = cons_head & mask;                                 \
-        uint32_t i, size = r->cons.size;                                 \
-        if (idx + n < size) {                                            \
-            for (i = 0; i < (n & (~(unsigned) 0x3)); i += 4, idx += 4) { \
-                obj_table[i] = r->ring[idx];                             \
-                obj_table[i + 1] = r->ring[idx + 1];                     \
-                obj_table[i + 2] = r->ring[idx + 2];                     \
-                obj_table[i + 3] = r->ring[idx + 3];                     \
-            }                                                            \
-            switch (n & 0x3) {                                           \
-            case 3:                                                      \
-                obj_table[i++] = r->ring[idx++];                         \
-            case 2:                                                      \
-                obj_table[i++] = r->ring[idx++];                         \
-            case 1:                                                      \
-                obj_table[i++] = r->ring[idx++];                         \
-            }                                                            \
-        } else {                                                         \
-            for (i = 0; idx < size; i++, idx++)                          \
-                obj_table[i] = r->ring[idx];                             \
-            for (idx = 0; i < n; i++, idx++)                             \
-                obj_table[i] = r->ring[idx];                             \
-        }                                                                \
-    } while (0)
-
 static inline uint32_t lr_w_aq(volatile uint32_t *p)
 {
     uint32_t v;
@@ -267,17 +210,44 @@ static inline void store_w_rl(volatile uint32_t *p, uint32_t v)
 static inline int cas_w(volatile uint32_t *p, uint32_t expect, uint32_t desired)
 {
     uint32_t old, sc;
+    // We will reuse 'old' (%0) as a temporary register for the backoff count
+    // because if we are backing off, we are about to reload 'old' anyway.
+    
     asm volatile(
         "0:\n"
-        "  lr.w   %0, (%2)\n"
-        "  bne    %0, %3, 1f\n"
-        "  sc.w   %1, %4, (%2)\n"
-        "  bnez   %1, 0b\n"
-        "  li     %1, 1\n"
-        "  j      2f\n"
+        /* --- Load Reserved --- */
+        "  lr.w    %0, (%2)\n"          
+        "  bne     %0, %3, 1f\n"        
+
+        /* --- Store Conditional --- */
+        "  sc.w    %1, %4, (%2)\n"      
+        "  beqz    %1, 2f\n"            // 0 means Success -> jump to end
+
+        /* --- DETERMINISTIC BACKOFF (The Fix) --- */
+        /* * Logic: delay = (mhartid + 1) * 16
+         * Hart 0 waits ~16 loops.
+         * Hart 1 waits ~32 loops.
+         * They can NEVER collide in lockstep again.
+         */
+        "  csrr    %0, mhartid\n"       // Load Hart ID
+        "  addi    %0, %0, 1\n"         // Add 1 (avoid 0 wait for Hart 0)
+        "  slli    %0, %0, 4\n"         // Multiply by 16 (shift left 4)
+        
+        "3:\n"                          // Spin loop
+        "  addi    %0, %0, -1\n"        
+        "  bnez    %0, 3b\n"            
+        "  j       0b\n"                // Retry CAS
+
+        /* --- Failure Exit (Value mismatch) --- */
         "1:\n"
-        "  li     %1, 0\n"
+        "  li      %1, 0\n"             
+        "  j       4f\n"
+
+        /* --- Success Exit --- */
         "2:\n"
+        "  li      %1, 1\n"             
+
+        "4:\n"
         : "=&r"(old), "=&r"(sc)
         : "r"(p), "r"(expect), "r"(desired)
         : "memory"
@@ -285,124 +255,37 @@ static inline int cas_w(volatile uint32_t *p, uint32_t expect, uint32_t desired)
     return (int)sc;
 }
 
-
-/* Enqueue several objects on a ring buffer (NOT multi-producers safe).
- *
- * @param r
- *   A pointer to the ring buffer structure.
- * @param obj_table
- *   A pointer to a table of void * pointers (objects).
- * @param n
- *   The number of objects to add in the ring buffer from the obj_table.
- * @return
- *   - 0: Success; objects enqueue.
- *   - -EDQUOT: Quota exceeded. The objects have been enqueued, but the
- *     high water mark is exceeded.
- *   - -ENOBUFS: Not enough room in the ring to enqueue, no object is enqueued.
+/* * FIX 1: Atomic Read with Acquire 
+ * Instead of 'lr.w', we use 'amoadd.w' with 0.
+ * This effectively loads the value from memory atomically.
  */
-static inline int ringbuffer_sp_do_enqueue(ringbuf_t *r,
-                                           void *const *obj_table,
-                                           const unsigned n)
+static inline uint32_t amoadd_0_w_aq(volatile uint32_t *p)
 {
-    uint32_t mask = r->prod.mask;
-    uint32_t prod_head = r->prod.head, cons_tail = r->cons.tail;
-    /* The subtraction is done between two unsigned 32-bits value (the result
-     * is always modulo 32 bits even if we have prod_head > cons_tail). So
-     * @free_entries is always between 0 and size(ring) - 1.
-     */
-    uint32_t free_entries = mask + cons_tail - prod_head;
-
-    /* check that we have enough room in ring buffer */
-    if ((n > free_entries))
-        return -ENOBUFS;
-
-    uint32_t prod_next = prod_head + n;
-    r->prod.head = prod_next;
-
-    /* write entries in ring buffer */
-    ENQUEUE_PTRS();
-    __compiler_barrier();
-
-    r->prod.tail = prod_next;
-
-    /* if we exceed the watermark */
-    return ((mask + 1) - free_entries + n) > r->prod.watermark ? -EDQUOT : 0;
+    uint32_t v;
+    // atomic_add(p, 0) returns the old value (the read value)
+    asm volatile(
+        "amoadd.w.aq %0, zero, (%1)" 
+        : "=r"(v) 
+        : "r"(p) 
+        : "memory"
+    );
+    return v;
 }
 
-/* Dequeue several objects from a ring buffer (NOT multi-consumers safe).
- * When the request objects are more than the available objects, only dequeue
- * the actual number of objects
- *
- * @param r
- *   A pointer to the ring buffer structure.
- * @param obj_table
- *   A pointer to a table of void * pointers (objects) that will be filled.
- * @param n
- *   The number of objects to dequeue from the ring buffer to the obj_table.
- * @return
- *   - 0: Success; objects dequeued.
- *   - -ENOENT: Not enough entries in the ring buffer to dequeue; no object is
- *     dequeued.
+/* * FIX 2: Atomic Write with Release 
+ * Instead of the lr/sc loop, we use 'amoswap.w'.
+ * This unconditionally swaps the value in memory with 'v'.
+ * It cannot fail, so no loop is needed.
  */
-static inline int ringbuffer_sc_do_dequeue(ringbuf_t *r,
-                                           void **obj_table,
-                                           const unsigned n)
+static inline void amoswap_w_rl(volatile uint32_t *p, uint32_t v)
 {
-    uint32_t mask = r->prod.mask;
-    uint32_t cons_head = r->cons.head, prod_tail = r->prod.tail;
-    /* The subtraction is done between two unsigned 32-bits value (the result
-     * is always modulo 32 bits even if we have cons_head > prod_tail). So
-     * @entries is always between 0 and size(ring) - 1.
-     */
-    uint32_t entries = prod_tail - cons_head;
-
-    if (n > entries)
-        return -ENOENT;
-
-    uint32_t cons_next = cons_head + n;
-    r->cons.head = cons_next;
-
-    /* copy in table */
-    DEQUEUE_PTRS();
-    __compiler_barrier();
-
-    r->cons.tail = cons_next;
-    return 0;
-}
-
-/* Enqueue one object on a ring buffer (NOT multi-producers safe).
- *
- * @param r
- *   A pointer to the ring buffer structure.
- * @param obj
- *   A pointer to the object to be added.
- * @return
- *   - 0: Success; objects enqueued.
- *   - -EDQUOT: Quota exceeded. The objects have been enqueued, but the
- *     high water mark is exceeded.
- *   - -ENOBUFS: Not enough room in the ring buffer to enqueue; no object
- *     is enqueued.
- */
-static inline int ringbuf_sp_enqueue(ringbuf_t *r, void *obj)
-{
-    return ringbuffer_sp_do_enqueue(r, &obj, 1);
-}
-
-/**
- * Dequeue one object from a ring buffer (NOT multi-consumers safe).
- *
- * @param r
- *   A pointer to the ring structure.
- * @param obj_p
- *   A pointer to a void * pointer (object) that will be filled.
- * @return
- *   - 0: Success; objects dequeued.
- *   - -ENOENT: Not enough entries in the ring buffer to dequeue, no object
- *     is dequeued.
- */
-static inline int ringbuf_sc_dequeue(ringbuf_t *r, void **obj_p)
-{
-    return ringbuffer_sc_do_dequeue(r, obj_p, 1);
+    // We don't care about the old value (rd=zero), just write 'v'
+    asm volatile(
+        "amoswap.w.rl zero, %1, (%0)"
+        : 
+        : "r"(p), "r"(v) 
+        : "memory"
+    );
 }
 
 static inline int ringbuf_mp_enqueue_1(ringbuf_t *r, void *obj)
@@ -411,9 +294,10 @@ static inline int ringbuf_mp_enqueue_1(ringbuf_t *r, void *obj)
 
     while (1) {
         uint32_t head = r->prod.head;
-        uint32_t cons_tail = lr_w_aq(&r->cons.tail);   // acquire observe frees
+        uint32_t cons_tail = amoadd_0_w_aq(&r->cons.tail);   // acquire observe frees
         uint32_t free_entries = mask + cons_tail - head;
 
+        // Test if the ring is full
         if (free_entries == 0)
             return -ENOBUFS;
 
@@ -443,8 +327,9 @@ static inline int ringbuf_mc_dequeue_1(ringbuf_t *r, void **obj_p)
 
     while (1) {
         uint32_t head = r->cons.head;
-        uint32_t prod_tail = lr_w_aq(&r->prod.tail);   // acquire observe available
+        uint32_t prod_tail = amoadd_0_w_aq(&r->prod.tail);   // acquire observe available
 
+        // Test if the ring is empty  
         if ((prod_tail - head) == 0)
             return -ENOENT;
 
@@ -469,35 +354,6 @@ static inline int ringbuf_mc_dequeue_1(ringbuf_t *r, void **obj_p)
     }
 }
 
-
-/* Test if a ring buffer is full.
- *
- * @param r
- *   A pointer to the ring structure.
- * @return
- *   - true: The ring is full.
- *   - false: The ring is not full.
- */
-static inline bool ringbuf_is_full(const ringbuf_t *r)
-{
-    uint32_t prod_tail = r->prod.tail, cons_tail = r->cons.tail;
-    return ((cons_tail - prod_tail - 1) & r->prod.mask) == 0;
-}
-
-/* Test if a ring buffer is empty.
- *
- * @param r
- *   A pointer to the ring structure.
- * @return
- *   - true: The ring is empty.
- *   - false: The ring is not empty.
- */
-static inline bool ringbuf_is_empty(const ringbuf_t *r)
-{
-    uint32_t prod_tail = r->prod.tail, cons_tail = r->cons.tail;
-    return cons_tail == prod_tail;
-}
-
 static inline uint32_t read_mhartid(void)
 {
     uint32_t x;
@@ -508,20 +364,19 @@ static inline uint32_t read_mhartid(void)
 static volatile uint32_t start_count = 0;
 static volatile uint32_t start_go = 0;
 
+
+/* barrier_4 remains the same as your AMO fix */
 static inline void barrier_4(void)
 {
-    /* atomic increment start_count using CAS */
-    while (1) {
-        uint32_t v;
-        v = start_count;
-        if (cas_w(&start_count, v, v + 1)) break;
-    }
+    /* ... your amoadd fix for start_count ... */
+    int inc = 1;
+    asm volatile("amoadd.w zero, %1, (%0)" :: "r"(&start_count), "r"(inc) : "memory");
 
     if (read_mhartid() == 0) {
         while (start_count < 4) { }
-        store_w_rl(&start_go, 1);          // release: start signal
+        amoswap_w_rl(&start_go, 1);           // NOW: Uses amoswap (Succeeds instantly)
     } else {
-        while (lr_w_aq(&start_go) == 0) { } // acquire: wait start signal
+        while (amoadd_0_w_aq(&start_go) == 0) { } // NOW: Uses amoadd (Reads atomically)
     }
 }
 

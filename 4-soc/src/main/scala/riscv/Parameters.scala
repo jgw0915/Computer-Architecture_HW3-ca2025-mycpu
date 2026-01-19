@@ -65,7 +65,7 @@ object Parameters {
 
   // AXI4-Lite bus topology: single master (CPU), 8 slave address regions
   // Address decoding uses upper 3 bits: 0x00-0x1F=RAM, 0x20-0x3F=VGA, etc.
-  val MasterDeviceCount    = 1
+  val MasterDeviceCount    = 4
   val SlaveDeviceCount     = 8
   val SlaveDeviceCountBits = log2Up(Parameters.SlaveDeviceCount) // 3 bits
 

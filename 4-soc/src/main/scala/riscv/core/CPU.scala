@@ -96,7 +96,8 @@ class CPU(val implementation: Int = ImplementationType.FiveStageFinal) extends M
 
       // Connect interrupt
       cpu.io.interrupt_flag := io.interrupt_flag
-
+      cpu.io.reservation_snoop_valid := io.reservation_snoop_valid
+      cpu.io.reservation_snoop_addr  := io.reservation_snoop_addr
       // Connect debug interfaces
       cpu.io.debug_read_address := io.debug_read_address
       io.debug_read_data        := cpu.io.debug_read_data

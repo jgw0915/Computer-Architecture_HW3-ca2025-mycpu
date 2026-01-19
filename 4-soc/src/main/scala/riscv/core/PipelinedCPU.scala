@@ -411,6 +411,12 @@ class PipelinedCPU extends Module {
   id2ex.io.memory_read_enable     := id.io.ex_memory_read_enable
   id2ex.io.memory_write_enable    := id.io.ex_memory_write_enable
   id2ex.io.csr_read_data          := csr_regs.io.id_reg_read_data
+  id2ex.io.is_lr                  := id.io.ex_is_lr
+  id2ex.io.is_sc                  := id.io.ex_is_sc
+  id2ex.io.is_amo                 := id.io.ex_is_amo
+  id2ex.io.amo_funct5             := id.io.ex_amo_funct5
+  id2ex.io.amo_aq                 := id.io.ex_amo_aq
+  id2ex.io.amo_rl                 := id.io.ex_amo_rl
 
   ex.io.instruction         := id2ex.io.output_instruction
   ex.io.instruction_address := id2ex.io.output_instruction_address
@@ -436,6 +442,13 @@ class PipelinedCPU extends Module {
   ex2mem.io.memory_write_enable := id2ex.io.output_memory_write_enable
   ex2mem.io.alu_result          := ex.io.mem_alu_result
   ex2mem.io.csr_read_data       := id2ex.io.output_csr_read_data
+  ex2mem.io.is_lr               := id2ex.io.output_is_lr
+  ex2mem.io.is_sc               := id2ex.io.output_is_sc
+  ex2mem.io.is_amo              := id2ex.io.output_is_amo
+  ex2mem.io.amo_funct5          := id2ex.io.output_amo_funct5
+  ex2mem.io.amo_aq              := id2ex.io.output_amo_aq
+  ex2mem.io.amo_rl              := id2ex.io.output_amo_rl
+
 
   mem.io.alu_result          := ex2mem.io.output_alu_result
   mem.io.reg2_data           := ex2mem.io.output_reg2_data
@@ -447,6 +460,14 @@ class PipelinedCPU extends Module {
   mem.io.regs_write_enable   := ex2mem.io.output_regs_write_enable
   mem.io.csr_read_data       := ex2mem.io.output_csr_read_data
   mem.io.instruction_address := ex2mem.io.output_instruction_address // For JAL/JALR forwarding
+  mem.io.is_lr               := ex2mem.io.output_is_lr
+  mem.io.is_sc               := ex2mem.io.output_is_sc
+  mem.io.is_amo              := ex2mem.io.output_is_amo
+  mem.io.amo_funct5          := ex2mem.io.output_amo_funct5
+  mem.io.amo_aq              := ex2mem.io.output_amo_aq
+  mem.io.amo_rl              := ex2mem.io.output_amo_rl
+  mem.io.reservation_snoop_valid := io.reservation_snoop_valid
+  mem.io.reservation_snoop_addr  := io.reservation_snoop_addr
   io.device_select := mem.io.bus
     .address(Parameters.AddrBits - 1, Parameters.AddrBits - Parameters.SlaveDeviceCountBits)
   io.memory_bundle <> mem.io.bus

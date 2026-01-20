@@ -12,7 +12,7 @@ OBJCOPY := $(CROSS_COMPILE)objcopy
 OBJDUMP := $(CROSS_COMPILE)objdump
 
 # Program targets (add new programs here)
-PROGRAMS := nyancat uart shell ring-buffer
+PROGRAMS := nyancat uart shell ring-buffer-spike ring-buffer
 BINARIES := $(PROGRAMS:%=%.asmbin)
 
 ASM_OUTPUTS := $(PROGRAMS:%=%.S)
@@ -47,15 +47,23 @@ shell.asmbin: shell.c mmio.h init.o link.lds
 	$(CROSS_COMPILE)ld -o shell.elf -T link.lds $(LDFLAGS) shell.o init.o
 	$(OBJCOPY) -O binary -j .text -j .data shell.elf $@
 
+ring-buffer-spike.asmbin: ring-buffer-spike.c init-multi-hart_spike.o link-spike-mh.lds
+	$(CC) $(CFLAGS) -c -o ring-buffer-spike.o ring-buffer-spike.c
+	$(CROSS_COMPILE)ld -o ring-buffer-spike.elf -T link-spike-mh.lds $(LDFLAGS) ring-buffer-spike.o init-multi-hart_spike.o
+	$(OBJCOPY) -O binary -j .text -j .data ring-buffer-spike.elf $@
+
 ring-buffer.asmbin: ring-buffer.c init-multi-hart.o link.lds
 	$(CC) $(CFLAGS) -c -o ring-buffer.o ring-buffer.c
-	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link-spike-mh.lds $(LDFLAGS) ring-buffer.o init-multi-hart.o
+	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link.lds $(LDFLAGS) ring-buffer.o init-multi-hart.o
 	$(OBJCOPY) -O binary -j .text -j .data ring-buffer.elf $@
 
 disasm-ringbuf: ring-bufffer.elf
 	$(OBJDUMP) -d ring-buffer.elf | less
 
 init.o: init.S
+	$(AS) -R $(ASFLAGS) -o $@ $<
+
+init-multi-hart_spike.o : init-multi-hart_spike.S
 	$(AS) -R $(ASFLAGS) -o $@ $<
 
 init-multi-hart.o : init-multi-hart.S

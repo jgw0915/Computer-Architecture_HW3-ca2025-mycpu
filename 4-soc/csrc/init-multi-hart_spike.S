@@ -16,8 +16,8 @@ _start:
   la gp, __global_pointer$
   .option pop
 
-  # Initialize stack pointer (4MB - standard across all implementations)
-  li sp, 0x00400000
+  # # Initialize stack pointer (follows spike startup convention)
+  li sp, 0x80010000
 
   # Make SURE that the init_done flag is zero before ANY hart starts waiting!
   la      x5, init_done
@@ -56,7 +56,7 @@ bss_clear_done:
 
   call main
 
-  j loop
+  j spike_terminate
 wait_hart0:
   la      x5, init_done
 
@@ -67,6 +67,12 @@ wait_hart0_loop:
   # Call main function
   call main
 
+spike_terminate:
+  # Halt loop if main returns
+  # Use wfi (Wait For Interrupt) for power efficiency
+  li a0, 0x1                  # exit code 1
+  la a1, tohost
+  sw a0, 0(a1)
 loop:
   wfi
   j loop

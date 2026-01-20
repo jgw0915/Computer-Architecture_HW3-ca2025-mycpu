@@ -26,6 +26,7 @@ SECTIONS
   . = 0x00100000;
   .bss ALIGN(0x1000) : {
     . = ALIGN(4);
+    KEEP(*(.ringbuf_result))
     __bss_start = .;
     *(.bss*)
     *(COMMON)

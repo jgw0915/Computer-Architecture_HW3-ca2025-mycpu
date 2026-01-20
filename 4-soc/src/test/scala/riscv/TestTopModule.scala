@@ -6,9 +6,9 @@ package riscv
 
 import bus.AXI4LiteSlave
 import chisel3._
-import peripheral.InstructionROM
 import chisel3.util.Mux1H
 import peripheral.DummySlave
+import peripheral.InstructionROM
 import peripheral.Memory
 import peripheral.ROMLoader
 import riscv.core.CPU
@@ -53,12 +53,12 @@ class TestTopModule(exeFilename: String) extends Module {
       cpu.io.debug_read_address     := 0.U
       cpu.io.csr_debug_read_address := 0.U
       if (i == 0) {
-        cpu.io.instruction_valid := rom_loader.io.load_finished
+        cpu.io.instruction_valid   := rom_loader.io.load_finished
         mem.io.instruction_address := cpu.io.instruction_address
-        cpu.io.instruction := mem.io.instruction
+        cpu.io.instruction         := mem.io.instruction
       } else {
         cpu.io.instruction_valid := false.B
-        cpu.io.instruction := 0.U
+        cpu.io.instruction       := 0.U
       }
       cpu.io.interrupt_flag := io.interrupt_flag
     }

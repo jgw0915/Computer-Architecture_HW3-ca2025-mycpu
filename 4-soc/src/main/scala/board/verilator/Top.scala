@@ -9,8 +9,8 @@ import bus.AXI4LiteSlaveBundle
 import bus.BusArbiter
 import bus.BusSwitch
 import chisel3._
-import chisel3.util.Mux1H
 import chisel3.stage.ChiselStage
+import chisel3.util.Mux1H
 import peripheral.DummySlave
 import peripheral.Uart
 import peripheral.VGA

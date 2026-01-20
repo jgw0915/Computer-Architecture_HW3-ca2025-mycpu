@@ -8,11 +8,11 @@ import chisel3._
 import riscv.Parameters
 
 object InstructionTypes {
-  val L  = "b0000011".U
-  val I  = "b0010011".U
-  val S  = "b0100011".U
-  val RM = "b0110011".U
-  val B  = "b1100011".U
+  val L   = "b0000011".U
+  val I   = "b0010011".U
+  val S   = "b0100011".U
+  val RM  = "b0110011".U
+  val B   = "b1100011".U
   val AMO = "b0101111".U
 }
 
@@ -108,7 +108,6 @@ object InstructionsTypeA {
   val amominu = "b11000".U
   val amomaxu = "b11100".U
 }
-
 
 object InstructionsNop {
   val nop = 0x00000013L.U(Parameters.DataWidth)

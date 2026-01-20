@@ -10,7 +10,7 @@ import riscv.core.BusBundle
 import riscv.Parameters
 
 object MemoryAccessStates extends ChiselEnum {
-    val Idle, Read, Write, AmoWrite = Value
+  val Idle, Read, Write, AmoWrite = Value
 }
 
 /**
@@ -42,22 +42,22 @@ object MemoryAccessStates extends ChiselEnum {
  */
 class MemoryAccess extends Module {
   val io = IO(new Bundle() {
-    val alu_result          = Input(UInt(Parameters.DataWidth))                 // used as memory address
-    val reg2_data           = Input(UInt(Parameters.DataWidth))
-    val memory_read_enable  = Input(Bool())
-    val memory_write_enable = Input(Bool())
-    val funct3              = Input(UInt(3.W))
-    val regs_write_source   = Input(UInt(2.W))
-    val regs_write_address  = Input(UInt(Parameters.PhysicalRegisterAddrWidth)) // destination register
-    val regs_write_enable   = Input(Bool())                                     // register write enable
-    val csr_read_data       = Input(UInt(Parameters.DataWidth))
-    val instruction_address = Input(UInt(Parameters.AddrWidth))                 // For JAL/JALR forwarding (PC+4)
-    val is_lr               = Input(Bool())
-    val is_sc               = Input(Bool())
-    val is_amo              = Input(Bool())
-    val amo_funct5          = Input(UInt(5.W))
-    val amo_aq              = Input(Bool())
-    val amo_rl              = Input(Bool())
+    val alu_result              = Input(UInt(Parameters.DataWidth))                 // used as memory address
+    val reg2_data               = Input(UInt(Parameters.DataWidth))
+    val memory_read_enable      = Input(Bool())
+    val memory_write_enable     = Input(Bool())
+    val funct3                  = Input(UInt(3.W))
+    val regs_write_source       = Input(UInt(2.W))
+    val regs_write_address      = Input(UInt(Parameters.PhysicalRegisterAddrWidth)) // destination register
+    val regs_write_enable       = Input(Bool())                                     // register write enable
+    val csr_read_data           = Input(UInt(Parameters.DataWidth))
+    val instruction_address     = Input(UInt(Parameters.AddrWidth))                 // For JAL/JALR forwarding (PC+4)
+    val is_lr                   = Input(Bool())
+    val is_sc                   = Input(Bool())
+    val is_amo                  = Input(Bool())
+    val amo_funct5              = Input(UInt(5.W))
+    val amo_aq                  = Input(Bool())
+    val amo_rl                  = Input(Bool())
     val reservation_snoop_valid = Input(Bool())
     val reservation_snoop_addr  = Input(UInt(Parameters.AddrWidth))
 
@@ -100,16 +100,15 @@ class MemoryAccess extends Module {
   val reservation_valid = RegInit(false.B)
   val reservation_addr  = RegInit(0.U(Parameters.AddrWidth))
 
-  val latched_amo_funct5 = RegInit(0.U(5.W))
-  val latched_reg2_data  = RegInit(0.U(Parameters.DataWidth))
-  val latched_amo_result = RegInit(0.U(Parameters.DataWidth))
-  val latched_is_amo     = RegInit(false.B)
-  val latched_is_lr      = RegInit(false.B)
-  val latched_is_sc      = RegInit(false.B)
-  val latched_amo_aq     = RegInit(false.B)
-  val latched_amo_rl     = RegInit(false.B)
+  val latched_amo_funct5    = RegInit(0.U(5.W))
+  val latched_reg2_data     = RegInit(0.U(Parameters.DataWidth))
+  val latched_amo_result    = RegInit(0.U(Parameters.DataWidth))
+  val latched_is_amo        = RegInit(false.B)
+  val latched_is_lr         = RegInit(false.B)
+  val latched_is_sc         = RegInit(false.B)
+  val latched_amo_aq        = RegInit(false.B)
+  val latched_amo_rl        = RegInit(false.B)
   val latched_write_address = RegInit(0.U(Parameters.AddrWidth))
-
 
   // Helper for common transaction completion logic (state machine reset only)
   def on_bus_transaction_finished() = {
@@ -211,7 +210,7 @@ class MemoryAccess extends Module {
         )
       )
 
-      val amo_result = MuxLookup( 
+      val amo_result = MuxLookup(
         latched_amo_funct5,
         processed_data
       )(
@@ -221,10 +220,26 @@ class MemoryAccess extends Module {
           InstructionsTypeA.amoxor  -> (processed_data ^ latched_reg2_data),
           InstructionsTypeA.amoand  -> (processed_data & latched_reg2_data),
           InstructionsTypeA.amoor   -> (processed_data | latched_reg2_data),
-          InstructionsTypeA.amomin  -> Mux(processed_data.asSInt < latched_reg2_data.asSInt, processed_data, latched_reg2_data),
-          InstructionsTypeA.amomax  -> Mux(processed_data.asSInt > latched_reg2_data.asSInt, processed_data, latched_reg2_data),
-          InstructionsTypeA.amominu -> Mux(processed_data.asUInt < latched_reg2_data.asUInt, processed_data, latched_reg2_data),
-          InstructionsTypeA.amomaxu -> Mux(processed_data.asUInt > latched_reg2_data.asUInt, processed_data, latched_reg2_data),
+          InstructionsTypeA.amomin -> Mux(
+            processed_data.asSInt < latched_reg2_data.asSInt,
+            processed_data,
+            latched_reg2_data
+          ),
+          InstructionsTypeA.amomax -> Mux(
+            processed_data.asSInt > latched_reg2_data.asSInt,
+            processed_data,
+            latched_reg2_data
+          ),
+          InstructionsTypeA.amominu -> Mux(
+            processed_data.asUInt < latched_reg2_data.asUInt,
+            processed_data,
+            latched_reg2_data
+          ),
+          InstructionsTypeA.amomaxu -> Mux(
+            processed_data.asUInt > latched_reg2_data.asUInt,
+            processed_data,
+            latched_reg2_data
+          ),
         )
       )
 
@@ -242,12 +257,12 @@ class MemoryAccess extends Module {
         reservation_addr  := latched_write_address
         on_bus_transaction_finished()
       }.elsewhen(latched_is_amo) {
-        mem_access_state   := MemoryAccessStates.AmoWrite
-        io.ctrl_stall_flag := true.B
-        io.bus.request     := true.B
-        io.bus.write       := true.B
-        io.bus.address     := latched_write_address
-        io.bus.write_data  := amo_result
+        mem_access_state    := MemoryAccessStates.AmoWrite
+        io.ctrl_stall_flag  := true.B
+        io.bus.request      := true.B
+        io.bus.write        := true.B
+        io.bus.address      := latched_write_address
+        io.bus.write_data   := amo_result
         io.bus.write_strobe := VecInit(Seq.fill(Parameters.WordSize)(true.B))
       }.otherwise {
         on_bus_transaction_finished()
@@ -263,34 +278,34 @@ class MemoryAccess extends Module {
     // Conservative fix: stall until write completion to ensure correctness.
     io.bus.request     := true.B
     io.ctrl_stall_flag := true.B
-    
+
     when(io.bus.write_valid) {
       on_bus_transaction_finished()
     }
   }.elsewhen(mem_access_state === MemoryAccessStates.AmoWrite) {
-    io.bus.request     := true.B
-    io.bus.write       := true.B
-    io.bus.address     := latched_write_address
-    io.bus.write_data  := latched_amo_result
+    io.bus.request      := true.B
+    io.bus.write        := true.B
+    io.bus.address      := latched_write_address
+    io.bus.write_data   := latched_amo_result
     io.bus.write_strobe := VecInit(Seq.fill(Parameters.WordSize)(true.B))
-    io.ctrl_stall_flag := true.B
+    io.ctrl_stall_flag  := true.B
 
     when(io.bus.write_valid) {
       on_bus_transaction_finished()
     }
   }.otherwise {
     // Idle state: check enable signals to start new transactions
-      when(io.is_sc) {
+    when(io.is_sc) {
       val sc_success = reservation_valid && (reservation_addr === io.alu_result)
-      reservation_valid := false.B
+      reservation_valid        := false.B
       latched_memory_read_data := Mux(sc_success, 0.U, 1.U)
-      read_just_completed := true.B
+      read_just_completed      := true.B
       when(sc_success) {
-        io.ctrl_stall_flag := true.B
-        io.bus.write_data  := io.reg2_data
-        io.bus.write       := true.B
-        io.bus.write_strobe := VecInit(Seq.fill(Parameters.WordSize)(true.B))
-        io.bus.request := true.B
+        io.ctrl_stall_flag    := true.B
+        io.bus.write_data     := io.reg2_data
+        io.bus.write          := true.B
+        io.bus.write_strobe   := VecInit(Seq.fill(Parameters.WordSize)(true.B))
+        io.bus.request        := true.B
         latched_write_address := io.alu_result
         when(io.bus.granted) {
           mem_access_state := MemoryAccessStates.Write
@@ -357,7 +372,7 @@ class MemoryAccess extends Module {
           io.bus.write_strobe(i) := true.B
         }
       }
-      io.bus.request := true.B
+      io.bus.request        := true.B
       latched_write_address := io.alu_result
       when(io.bus.granted) {
         mem_access_state := MemoryAccessStates.Write

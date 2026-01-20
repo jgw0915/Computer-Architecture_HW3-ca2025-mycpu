@@ -74,9 +74,9 @@ class InstructionDecode extends Module {
     (opcode === InstructionTypes.L) || (opcode === InstructionTypes.S) || (opcode === InstructionTypes.B) ||
     (opcode === Instructions.jalr) || (opcode === Instructions.csr && !csr_uses_uimm) ||
     (opcode === InstructionTypes.AMO)
-  val uses_rs2 = (opcode === InstructionTypes.RM) || (opcode === InstructionTypes.S) || (opcode === InstructionTypes.B) ||
-    (opcode === InstructionTypes.AMO && !is_lr)
-
+  val uses_rs2 =
+    (opcode === InstructionTypes.RM) || (opcode === InstructionTypes.S) || (opcode === InstructionTypes.B) ||
+      (opcode === InstructionTypes.AMO && !is_lr)
 
   io.regs_reg1_read_address := Mux(uses_rs1, rs1, 0.U(Parameters.PhysicalRegisterAddrWidth))
   io.regs_reg2_read_address := Mux(uses_rs2, rs2, 0.U(Parameters.PhysicalRegisterAddrWidth))
@@ -96,8 +96,9 @@ class InstructionDecode extends Module {
         io.instruction(11, 8),
         0.U(1.W)
       ),
-      Instructions.lui   -> Cat(io.instruction(31, 12), 0.U(12.W)),
-      Instructions.auipc -> Cat(io.instruction(31, 12), 0.U(12.W)),
+      InstructionTypes.AMO -> 0.U(Parameters.DataWidth),
+      Instructions.lui     -> Cat(io.instruction(31, 12), 0.U(12.W)),
+      Instructions.auipc   -> Cat(io.instruction(31, 12), 0.U(12.W)),
       Instructions.jal -> Cat(
         Fill(12, io.instruction(31)),
         io.instruction(19, 12),

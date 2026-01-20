@@ -55,7 +55,7 @@ class EX2MEM extends Module {
     val output_memory_write_enable = Output(Bool())
     val output_alu_result          = Output(UInt(Parameters.DataWidth))
     val output_csr_read_data       = Output(UInt(Parameters.DataWidth))
-      val output_is_lr               = Output(Bool())
+    val output_is_lr               = Output(Bool())
     val output_is_sc               = Output(Bool())
     val output_is_amo              = Output(Bool())
     val output_amo_funct5          = Output(UInt(5.W))

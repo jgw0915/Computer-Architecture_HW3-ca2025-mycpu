@@ -17,7 +17,8 @@ import riscv.Parameters
  * but don't need a separate zero output).
  */
 object ALUFunctions extends ChiselEnum {
-  val zero, add, sub, sll, slt, xor, or, and, srl, sra, sltu, amoadd, amoxor, amoand, amoor, amomin, amomax, amominu, amomaxu, amoswap =
+  val zero, add, sub, sll, slt, xor, or, and, srl, sra, sltu, amoadd, amoxor, amoand, amoor, amomin, amomax, amominu,
+      amomaxu, amoswap =
     Value
 }
 
@@ -77,7 +78,7 @@ class ALU extends Module {
     is(ALUFunctions.sltu) {
       io.result := io.op1 < io.op2
     }
-        is(ALUFunctions.amoadd) {
+    is(ALUFunctions.amoadd) {
       io.result := io.op1 + io.op2
     }
     is(ALUFunctions.amoswap) {

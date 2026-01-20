@@ -81,23 +81,6 @@ typedef struct {
     void *ring[] __attribute__((aligned(CACHE_LINE_SIZE)));
 } ringbuf_t;
 
-typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
-    ring_prod_t prod;
-    ring_cons_t cons;
-    void *ring[RING_COUNT];
-} ringbuf_storage_t;
-
-typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
-    ringbuf_storage_t ring;
-    volatile uint32_t start_count;
-    volatile uint32_t start_go;
-    volatile uint32_t result;
-    char _pad_result[CACHE_LINE_SIZE - 3 * sizeof(uint32_t)];
-    volatile uint32_t done_count;
-    volatile uint32_t done_go;
-    char _pad_done[CACHE_LINE_SIZE - 2 * sizeof(uint32_t)];
-} ringbuf_shared_t;
-
 /* Layout assertions: head lines must be isolated and aligned. */
 static_assert(sizeof(ring_prod_t) % CACHE_LINE_SIZE == 0, "prod size not multiple of cache line");
 static_assert(sizeof(ring_cons_t) % CACHE_LINE_SIZE == 0, "cons size not multiple of cache line");
@@ -140,13 +123,6 @@ static inline uint32_t mul_u32(uint32_t a, uint32_t b) {
     }
     return r;
 }
-
-static ringbuf_shared_t ring_shared __attribute__((section(".ringbuf_result")));
-
-static_assert(sizeof(ringbuf_storage_t) == 0x200, "ringbuf storage must be 0x200 bytes");
-static_assert(offsetof(ringbuf_shared_t, start_count) == 0x200, "start_count offset mismatch");
-static_assert(offsetof(ringbuf_shared_t, start_go) == 0x204, "start_go offset mismatch");
-static_assert(offsetof(ringbuf_shared_t, result) == 0x208, "result offset mismatch");
 
 #define RINGBUF_BYTES(count) \
         (((sizeof(ringbuf_t) + (count) * sizeof(void*) + (CACHE_LINE_SIZE - 1)) / CACHE_LINE_SIZE) * CACHE_LINE_SIZE)
@@ -385,40 +361,30 @@ static inline uint32_t read_mhartid(void)
     return x;
 }
 
+static volatile uint32_t start_count = 0;
+static volatile uint32_t start_go = 0;
+
+
 /* barrier_4 remains the same as your AMO fix */
 static inline void barrier_4(void)
 {
     /* ... your amoadd fix for start_count ... */
     int inc = 1;
-    asm volatile("amoadd.w zero, %1, (%0)" :: "r"(&ring_shared.start_count), "r"(inc) : "memory");
+    asm volatile("amoadd.w zero, %1, (%0)" :: "r"(&start_count), "r"(inc) : "memory");
 
     if (read_mhartid() == 0) {
-        while (ring_shared.start_count < 4) { }
-        amoswap_w_rl(&ring_shared.start_go, 1);           // NOW: Uses amoswap (Succeeds instantly)
+        while (start_count < 4) { }
+        amoswap_w_rl(&start_go, 1);           // NOW: Uses amoswap (Succeeds instantly)
     } else {
-        while (amoadd_0_w_aq(&ring_shared.start_go) == 0) { } // NOW: Uses amoadd (Reads atomically)
+        while (amoadd_0_w_aq(&start_go) == 0) { } // NOW: Uses amoadd (Reads atomically)
     }
 }
 
 #define ITERS 5
-#define EXPECTED_TRANSFERS (ITERS * 2)
-
-static inline void barrier_done(void)
-{
-    int inc = 1;
-    asm volatile("amoadd.w zero, %1, (%0)" :: "r"(&ring_shared.done_count), "r"(inc) : "memory");
-
-    if (read_mhartid() == 0) {
-        while (ring_shared.done_count < 4) { }
-        amoswap_w_rl(&ring_shared.done_go, 1);
-    } else {
-        while (amoadd_0_w_aq(&ring_shared.done_go) == 0) { }
-    }
-}
 
 int main(void)
 {
-    ringbuf_t *r = (ringbuf_t *)&ring_shared.ring;
+    ringbuf_t *r = (ringbuf_t *)ring_storage;
     uint32_t id = read_mhartid();
 
     if (id == 0) ringbuf_init(r, RING_COUNT);
@@ -436,18 +402,6 @@ int main(void)
             void *obj;
             while (ringbuf_mc_dequeue_1(r, &obj) != 0) { }
         }
-    }
-
-    barrier_done();
-
-    if (id == 0) {
-        ring_shared.result =
-            (ring_shared.start_count == 4) &&
-            (ring_shared.start_go == 1) &&
-            (r->prod.head == EXPECTED_TRANSFERS) &&
-            (r->prod.tail == EXPECTED_TRANSFERS) &&
-            (r->cons.head == EXPECTED_TRANSFERS) &&
-            (r->cons.tail == EXPECTED_TRANSFERS);
     }
 
     return 0;

@@ -12,7 +12,7 @@ OBJCOPY := $(CROSS_COMPILE)objcopy
 OBJDUMP := $(CROSS_COMPILE)objdump
 
 # Program targets (add new programs here)
-PROGRAMS := nyancat uart shell ring-buffer-spike ring-buffer
+PROGRAMS := nyancat uart shell ring-buffer-spike ring-buffer amoadd-test
 BINARIES := $(PROGRAMS:%=%.asmbin)
 
 ASM_OUTPUTS := $(PROGRAMS:%=%.S)
@@ -56,6 +56,11 @@ ring-buffer.asmbin: ring-buffer.c init-multi-hart.o link.lds
 	$(CC) $(CFLAGS) -c -o ring-buffer.o ring-buffer.c
 	$(CROSS_COMPILE)ld -o ring-buffer.elf -T link.lds $(LDFLAGS) ring-buffer.o init-multi-hart.o
 	$(OBJCOPY) -O binary -j .text -j .data ring-buffer.elf $@
+
+amoadd-test.asmbin: amoadd-test.c init-multi-hart.o link.lds
+	$(CC) $(CFLAGS) -c -o amoadd-test.o amoadd-test.c
+	$(CROSS_COMPILE)ld -o amoadd-test.elf -T link.lds $(LDFLAGS) amoadd-test.o init-multi-hart.o
+	$(OBJCOPY) -O binary -j .text -j .data amoadd-test.elf $@
 
 disasm-ringbuf: ring-bufffer.elf
 	$(OBJDUMP) -d ring-buffer.elf | less

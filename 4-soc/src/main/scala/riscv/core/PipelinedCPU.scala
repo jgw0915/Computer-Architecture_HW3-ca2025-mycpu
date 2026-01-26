@@ -146,7 +146,9 @@ class PipelinedCPU extends Module {
   // WB stage signals for JAL/JALR hazard detection (pipeline register delay fix)
   ctrl.io.regs_write_source_wb := mem2wb.io.output_regs_write_source
   ctrl.io.rd_wb                := mem2wb.io.output_regs_write_address
-
+  ctrl.io.aqrl_fence_active    := mem.io.aqrl_fence_active
+  ctrl.io.amo_rl_id            := id.io.ex_amo_rl
+    
   regs.io.write_enable  := mem2wb.io.output_regs_write_enable
   regs.io.write_address := mem2wb.io.output_regs_write_address
   regs.io.write_data    := wb.io.regs_write_data
